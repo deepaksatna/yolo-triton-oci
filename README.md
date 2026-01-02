@@ -233,6 +233,185 @@ Expected Performance:
 
 ---
 
+## 📊 Per-Model Performance Scaling Analysis
+
+Detailed performance analysis showing how each YOLO model scales across different concurrency levels and deployment configurations.
+
+### YOLOv8 Medium (yolov8m) - Recommended for Production ⭐
+
+**Best overall balance of speed and accuracy**
+
+#### Throughput Scaling Across Concurrency Levels
+
+![YOLOv8m Throughput vs Concurrency](results/benchmarking/images/per_model/yolov8m_throughput_vs_concurrency.png)
+
+*Figure: YOLOv8m achieves 234-243 FPS with TensorRT across all concurrency levels, while PyTorch bottlenecks at 21 FPS*
+
+#### Latency Scaling Across Concurrency Levels
+
+![YOLOv8m Latency vs Concurrency](results/benchmarking/images/per_model/yolov8m_latency_vs_concurrency.png)
+
+*Figure: TensorRT maintains 28-61ms latency even at C=32, while PyTorch degrades to 1500ms*
+
+#### Speedup vs PyTorch Baseline
+
+![YOLOv8m Speedup](results/benchmarking/images/per_model/yolov8m_speedup_vs_base.png)
+
+*Figure: Exceptional 53.8x speedup achieved with nim-grpc at C=32*
+
+**Key Insights:**
+- ✅ Best configuration: nim-grpc @ C=16-32
+- ✅ Peak throughput: 243 FPS (C=16)
+- ✅ Lowest latency: 28ms (C=32 with nim-grpc)
+- ✅ Exceptional 53.8x speedup vs PyTorch
+- ✅ 100% reliability across all TensorRT deployments
+
+---
+
+### YOLOv11 Large (yolov11l) - Highest Throughput
+
+**Best for batch processing and high-volume inference**
+
+#### Throughput Scaling Across Concurrency Levels
+
+![YOLOv11l Throughput vs Concurrency](results/benchmarking/images/per_model/yolov11l_throughput_vs_concurrency.png)
+
+*Figure: YOLOv11l achieves peak 242 FPS at C=16, highest throughput of all models tested*
+
+#### Latency Scaling Across Concurrency Levels
+
+![YOLOv11l Latency vs Concurrency](results/benchmarking/images/per_model/yolov11l_latency_vs_concurrency.png)
+
+*Figure: Maintains 58ms latency at C=16 with TensorRT, 12.8x better than PyTorch*
+
+#### Speedup vs PyTorch Baseline
+
+![YOLOv11l Speedup](results/benchmarking/images/per_model/yolov11l_speedup_vs_base.png)
+
+*Figure: Consistent 11-15x speedup across all TensorRT deployments*
+
+**Key Insights:**
+- ✅ Peak throughput: **242 FPS** (highest of all models)
+- ✅ Best for: Batch video processing, large-scale annotation
+- ✅ Latency: 58ms @ C=16
+- ✅ nim-batching also performs well at C=16
+
+---
+
+### YOLOv8 Small (yolov8s) - Highest FPS Potential
+
+**Lightweight model for maximum throughput**
+
+#### Throughput Scaling Across Concurrency Levels
+
+![YOLOv8s Throughput vs Concurrency](results/benchmarking/images/per_model/yolov8s_throughput_vs_concurrency.png)
+
+*Figure: Small model achieves 230-239 FPS consistently across deployments*
+
+#### Latency Scaling Across Concurrency Levels
+
+![YOLOv8s Latency vs Concurrency](results/benchmarking/images/per_model/yolov8s_latency_vs_concurrency.png)
+
+*Figure: Lowest model size with competitive latency performance*
+
+**Key Insights:**
+- ✅ Smallest model, fastest processing
+- ✅ Good for: Real-time applications where model size matters
+- ✅ Trade-off: Lower accuracy than medium/large models
+
+---
+
+### YOLOv8 Large (yolov8l) - Accuracy Priority
+
+**Balance of accuracy and performance**
+
+#### Throughput Scaling Across Concurrency Levels
+
+![YOLOv8l Throughput vs Concurrency](results/benchmarking/images/per_model/yolov8l_throughput_vs_concurrency.png)
+
+*Figure: YOLOv8l maintains 214-240 FPS with TensorRT optimization*
+
+#### Latency Scaling Across Concurrency Levels
+
+![YOLOv8l Latency vs Concurrency](results/benchmarking/images/per_model/yolov8l_latency_vs_concurrency.png)
+
+*Figure: Stable latency performance across concurrency levels*
+
+**Key Insights:**
+- ✅ Larger model for better detection accuracy
+- ✅ Still achieves 240 FPS peak throughput
+- ✅ Good balance for quality-critical applications
+
+---
+
+### YOLOv8 Extra-Large (yolov8x) - Maximum Accuracy
+
+**Largest model for best detection quality**
+
+#### Throughput Scaling Across Concurrency Levels
+
+![YOLOv8x Throughput vs Concurrency](results/benchmarking/images/per_model/yolov8x_throughput_vs_concurrency.png)
+
+*Figure: Even the largest model achieves 219-229 FPS with TensorRT*
+
+#### Latency Scaling Across Concurrency Levels
+
+![YOLOv8x Latency vs Concurrency](results/benchmarking/images/per_model/yolov8x_latency_vs_concurrency.png)
+
+*Figure: Acceptable latency for quality-critical applications*
+
+**Key Insights:**
+- ✅ Best detection accuracy
+- ✅ 229 FPS peak (TensorRT binary @ C=32)
+- ✅ Use for: Medical imaging, quality control, safety-critical apps
+- ✅ Still 10.9x faster than PyTorch
+
+---
+
+### YOLOv11 Models Comparison
+
+#### YOLOv11 Small (yolov11s)
+
+![YOLOv11s Throughput vs Concurrency](results/benchmarking/images/per_model/yolov11s_throughput_vs_concurrency.png)
+
+*Lightweight YOLOv11 variant with excellent throughput*
+
+#### YOLOv11 Medium (yolov11m)
+
+![YOLOv11m Throughput vs Concurrency](results/benchmarking/images/per_model/yolov11m_throughput_vs_concurrency.png)
+
+*Balanced YOLOv11 variant, good alternative to yolov8m*
+
+**YOLOv11 Key Insights:**
+- ✅ Newer architecture with incremental improvements over YOLOv8
+- ✅ yolov11m: 243 FPS @ C=16 (nim-binary)
+- ✅ yolov11l: **242 FPS peak** (best overall)
+- ✅ All variants show consistent TensorRT speedup
+
+---
+
+### 📈 Model Selection Guide
+
+Based on the per-model analysis:
+
+| Model | Peak FPS | Latency @ C=16 | Best For | Accuracy |
+|-------|----------|----------------|----------|----------|
+| **yolov8m** ⭐ | 243 FPS | 57-61 ms | General production | Good |
+| **yolov11l** | **242 FPS** | 58 ms | Batch processing | Better |
+| yolov8s | 239 FPS | 59 ms | Lightweight apps | Fair |
+| yolov8l | 240 FPS | 59 ms | Quality apps | Better |
+| yolov8x | 229 FPS | 61 ms | Max accuracy | Best |
+| yolov11m | 243 FPS | 57-61 ms | Balanced | Good |
+| yolov11s | 234 FPS | 61 ms | Lightweight v11 | Fair |
+
+**Recommendations:**
+- **For most use cases:** yolov8m or yolov11m
+- **For highest throughput:** yolov11l
+- **For best accuracy:** yolov8x or yolov11l
+- **For lightweight deployment:** yolov8s or yolov11s
+
+---
+
 ## 🚀 Quick Start - Deployment Guide
 
 ### Prerequisites
