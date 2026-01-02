@@ -14,13 +14,21 @@ Production-ready solution for deploying YOLO object detection models using **NVI
 
 This repository demonstrates **production-grade YOLO deployment** with:
 
-✅ **NVIDIA Triton Inference Server** - Industry-standard model serving
-✅ **TensorRT Optimization** - 19.1x average speedup vs PyTorch
-✅ **Multi-Model Support** - YOLOv8 (s/m/l/x) + YOLOv11 (s/m/l)
-✅ **Protocol Flexibility** - HTTP and gRPC support
-✅ **Dynamic Batching** - Automatic request batching for throughput
-✅ **Comprehensive Benchmarking** - 28,000+ inferences tested
-✅ **90% Cost Reduction** - Proven GPU infrastructure savings
+
+ **NVIDIA Triton Inference Server** - Industry-standard model serving
+
+ **TensorRT Optimization** - 19.1x average speedup vs PyTorch
+
+ **Multi-Model Support** - YOLOv8 (s/m/l/x) + YOLOv11 (s/m/l)
+
+ **Protocol Flexibility** - HTTP and gRPC support
+
+ **Dynamic Batching** - Automatic request batching for throughput
+
+ **Comprehensive Benchmarking** - 28,000+ inferences tested
+
+ **90% Cost Reduction** - Proven GPU infrastructure savings
+
 
 **Platform:** Oracle Cloud Infrastructure (OCI) with NVIDIA A10 GPU
 **Performance:** Up to **53.8x speedup**, **242 FPS** peak throughput, **28ms** lowest latency
@@ -36,22 +44,22 @@ This repository provides everything needed for production YOLO deployment:
 - **TensorRT NIMs** - Optimized inference with NVIDIA Triton Server
   - nim-binary (HTTP), nim-grpc (gRPC), nim-batching (dynamic batching)
 
-### ☸️ Kubernetes Deployments
+###  Kubernetes Deployments
 - Production-ready manifests for all 4 configurations
 - Service definitions, ConfigMaps, resource limits
 - GPU scheduling and allocation
 
-### 📊 Benchmarking Suite
+###  Benchmarking Suite
 - Multi-model concurrent load testing
 - Automated performance comparison
 - Visual reporting and analysis
 
-### 📈 Proven Results
+###  Proven Results
 - Comprehensive benchmarking across 7 YOLO models
 - 4 concurrency levels tested (C=1, 4, 16, 32)
 - Real production data from OCI A10 GPU
 
-## 📊 Deployment Configurations
+##  Deployment Configurations
 
 | Deployment | Framework | Protocols | GPU | Features | Best For |
 |------------|-----------|-----------|-----|----------|----------|
@@ -66,9 +74,9 @@ This repository provides everything needed for production YOLO deployment:
 
 Comprehensive benchmarking of **7 YOLO models** across **4 deployments** with **multiple concurrency levels** on OCI A10 GPU using NVIDIA Triton Inference Server.
 
-**[📊 Full Detailed Report](results/benchmarking/README.md)** | **Test Date:** 2026-01-02 | **Total Inferences:** 28,000+
+**[ Full Detailed Report](results/benchmarking/README.md)** | **Test Date:** 2026-01-02 | **Total Inferences:** 28,000+
 
-### 🏆 Top Performance Metrics
+###  Top Performance Metrics
 
 | Metric | Value | Configuration |
 |--------|-------|---------------|
