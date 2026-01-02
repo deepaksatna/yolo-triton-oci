@@ -1,0 +1,319 @@
+---
+# NIM with gRPC + Dynamic Batching (GPU 3)
+# TensorRT GPU acceleration with pre-exported ONNX models
+# Converts ONNX to TensorRT .plan files at init using trtexec
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yolo-nim-batching
+  labels:
+    deployment-type: nim-batching
+    gpu-assignment: gpu-3
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-conversion-scripts
+  namespace: yolo-nim-batching
+data:
+  convert_model.py: |
+    #!/usr/bin/env python3
+    import os
+    import shutil
+    from ultralytics import YOLO
+
+    model_source = "/root/.cache/ultralytics/weights"
+    model_repo = "/model-repository"
+
+    print("Loading yolov8s.pt...")
+    model = YOLO(f"{model_source}/yolov8s.pt")
+
+    print("Exporting to ONNX format...")
+    onnx_path = model.export(format="onnx", imgsz=640, dynamic=True, simplify=True)
+    print(f"ONNX model exported to: {onnx_path}")
+
+    model_name = "yolov8s"
+    model_dir = f"{model_repo}/{model_name}"
+    version_dir = f"{model_dir}/1"
+
+    print(f"Creating model repository structure: {version_dir}")
+    os.makedirs(version_dir, exist_ok=True)
+
+    target = f"{version_dir}/model.onnx"
+    print(f"Copying {onnx_path} to {target}")
+    shutil.copy(onnx_path, target)
+
+    print(f"Model {model_name} ready for Triton")
+
+  config.pbtxt: |
+    name: "yolov8s"
+    backend: "tensorrt"
+    platform: "tensorrt_plan"
+    max_batch_size: 8
+    default_model_filename: "model.plan"
+
+    input [
+      {
+        name: "images"
+        data_type: TYPE_FP32
+        dims: [ 3, 640, 640 ]
+      }
+    ]
+
+    output [
+      {
+        name: "output0"
+        data_type: TYPE_FP32
+        dims: [ 84, -1 ]
+      }
+    ]
+
+    dynamic_batching {
+      preferred_batch_size: [ 1, 2, 4, 8 ]
+      max_queue_delay_microseconds: 5000
+      preserve_ordering: false
+    }
+
+    instance_group [
+      {
+        count: 2
+        kind: KIND_GPU
+        gpus: [ 0 ]
+      }
+    ]
+
+    optimization {
+      cuda {
+        graphs: true
+        graph_spec {
+          batch_size: 1
+          input {
+            key: "images"
+            value {
+              dim: [ 3, 640, 640 ]
+            }
+          }
+        }
+        graph_spec {
+          batch_size: 4
+          input {
+            key: "images"
+            value {
+              dim: [ 3, 640, 640 ]
+            }
+          }
+        }
+        graph_spec {
+          batch_size: 8
+          input {
+            key: "images"
+            value {
+              dim: [ 3, 640, 640 ]
+            }
+          }
+        }
+      }
+    }
+
+    parameters {
+      key: "TRT_FP16"
+      value: {
+        string_value: "1"
+      }
+    }
+
+    parameters {
+      key: "TRT_MAX_WORKSPACE_SIZE"
+      value: {
+        string_value: "4294967296"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yolo-nim-batching
+  namespace: yolo-nim-batching
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: yolo-nim-batching
+  template:
+    metadata:
+      labels:
+        app: yolo-nim-batching
+        gpu: gpu-3
+    spec:
+      imagePullSecrets:
+        - name: ocirsecret
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu-id
+                operator: In
+                values:
+                - "3"
+
+      initContainers:
+        - name: tensorrt-converter
+          image: fra.ocir.io/frntrd2vyxvi/models:yolo-nim-tensorrt-v1
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "========================================="
+              echo "TensorRT Conversion using Python API"
+              echo "ONNX → TensorRT .plan files"
+              echo "with Dynamic Batching Configuration"
+              echo "========================================="
+
+              # Check GPU
+              echo "🔍 Checking GPU availability..."
+              nvidia-smi -L
+
+              # Check if ONNX models exist
+              echo ""
+              echo "📁 Available ONNX models:"
+              ls -lh /models/
+
+              # Create model repository structure for yolov8s
+              MODEL_NAME="yolov8s"
+              MODEL_DIR="/model-repository/${MODEL_NAME}"
+              VERSION_DIR="${MODEL_DIR}/1"
+              mkdir -p "${VERSION_DIR}"
+
+              # Convert ONNX to TensorRT using trtexec
+              echo ""
+              echo "🔧 Converting ${MODEL_NAME} ONNX to TensorRT..."
+              echo "   Input: /models/${MODEL_NAME}.onnx"
+              echo "   Output: ${VERSION_DIR}/model.plan"
+              echo ""
+
+              # Use trtexec (available in the container at /usr/src/tensorrt/bin/trtexec)
+              /usr/src/tensorrt/bin/trtexec \
+                --onnx=/models/${MODEL_NAME}.onnx \
+                --saveEngine=${VERSION_DIR}/model.plan \
+                --fp16 \
+                --workspace=4096 \
+                --minShapes=images:1x3x640x640 \
+                --optShapes=images:4x3x640x640 \
+                --maxShapes=images:8x3x640x640 \
+                --verbose
+
+              # Copy config from ConfigMap
+              echo ""
+              echo "⚙️  Copying TensorRT model configuration with dynamic batching..."
+              cp /scripts/config.pbtxt "${MODEL_DIR}/config.pbtxt"
+
+              echo ""
+              echo "✅ Model repository structure:"
+              find /model-repository -type f -exec ls -lh {} \;
+
+              echo ""
+              echo "📄 TensorRT Config (with Dynamic Batching):"
+              cat "${MODEL_DIR}/config.pbtxt"
+
+              echo ""
+              echo "✓ TensorRT .plan file ready for GPU inference with dynamic batching"
+          volumeMounts:
+            - name: model-repository
+              mountPath: /model-repository
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+
+      containers:
+        - name: triton-server
+          image: fra.ocir.io/frntrd2vyxvi/models:yolo-nim-tensorrt-v1
+
+          command: ["tritonserver"]
+          args:
+            - "--model-repository=/model-repository"
+            - "--strict-model-config=false"
+            - "--log-verbose=1"
+            - "--http-port=8000"
+            - "--grpc-port=8001"
+            - "--metrics-port=8002"
+            - "--allow-grpc=true"
+            - "--grpc-infer-allocation-pool-size=32"
+            - "--backend-config=tensorrt,default-max-batch-size=8"
+            - "--backend-config=tensorrt,coalesce-request-input=true"
+            - "--model-control-mode=explicit"
+            - "--load-model=yolov8s"
+            - "--pinned-memory-pool-byte-size=268435456"
+            - "--cuda-memory-pool-byte-size=0:2147483648"
+            - "--buffer-manager-thread-count=8"
+            - "--http-thread-count=8"
+            - "--grpc-use-ssl=false"
+
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 8001
+              name: grpc
+            - containerPort: 8002
+              name: metrics
+
+          resources:
+            requests:
+              memory: "12Gi"
+              cpu: "6"
+              nvidia.com/gpu: "1"
+            limits:
+              memory: "24Gi"
+              cpu: "12"
+              nvidia.com/gpu: "1"
+
+          env:
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+
+          volumeMounts:
+            - name: model-repository
+              mountPath: /model-repository
+            - name: shm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: model-repository
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+        - name: scripts
+          configMap:
+            name: model-conversion-scripts
+            defaultMode: 0755
+
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yolo-nim-batching-service
+  namespace: yolo-nim-batching
+spec:
+  type: LoadBalancer
+  selector:
+    app: yolo-nim-batching
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+    - port: 8001
+      targetPort: 8001
+      name: grpc
+    - port: 8002
+      targetPort: 8002
+      name: metrics
+---

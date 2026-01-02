@@ -1,0 +1,217 @@
+---
+# Base PyTorch YOLO Deployment (GPU 0)
+# Baseline performance for comparison
+# Expected: 15-20ms latency, 50-65 FPS
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yolo-base
+  labels:
+    deployment-type: base-pytorch
+    gpu-assignment: gpu-0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yolo-base-pytorch
+  namespace: yolo-base
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: yolo-base
+  template:
+    metadata:
+      labels:
+        app: yolo-base
+        gpu: gpu-0
+    spec:
+      imagePullSecrets:
+        - name: ocirsecret
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu-id
+                operator: In
+                values:
+                - "0"
+
+      containers:
+        - name: yolo-golden
+          image: fra.ocir.io/frntrd2vyxvi/yolo-golden:v2.0.0-all-models
+
+          command: ["python3", "-u", "/app/server.py"]
+
+          ports:
+            - containerPort: 8080
+              name: http
+
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "4"
+              nvidia.com/gpu: "1"
+            limits:
+              memory: "16Gi"
+              cpu: "8"
+              nvidia.com/gpu: "1"
+
+          env:
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+            - name: DEPLOYMENT_TYPE
+              value: "base-pytorch"
+            - name: MODEL_PATH
+              value: "/models/yolov8s.pt"
+
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+
+      volumes:
+        - name: app-code
+          configMap:
+            name: base-pytorch-code
+
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: base-pytorch-code
+  namespace: yolo-base
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """
+    Base PyTorch YOLO Inference Server
+    Provides baseline performance metrics
+    """
+    from flask import Flask, request, jsonify
+    import torch
+    from ultralytics import YOLO
+    import numpy as np
+    import time
+    import cv2
+    from io import BytesIO
+    import base64
+    import os
+
+    app = Flask(__name__)
+
+    # Load model
+    print("Loading YOLOv8s model...")
+
+    model_path = os.getenv("MODEL_PATH", "/models/yolov8s.pt")
+    print("Loading YOLO model from:", model_path)
+    model = YOLO(model_path)
+    #model = YOLO('yolov8s.pt')
+    model.to('cuda')
+    print("Model loaded on GPU")
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({'status': 'healthy', 'deployment': 'base-pytorch'})
+
+    @app.route('/infer', methods=['POST'])
+    def infer():
+        try:
+            data = request.json
+            image_data = data.get('image')
+
+            # Decode image
+            if image_data:
+                img_bytes = base64.b64decode(image_data)
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            else:
+                # Random test image
+                img = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
+
+            # Inference
+            start = time.time()
+            results = model(img)
+            latency = (time.time() - start) * 1000
+
+            # Extract results
+            detections = []
+            for r in results:
+                boxes = r.boxes
+                for box in boxes:
+                    detections.append({
+                        'bbox': box.xyxy[0].cpu().numpy().tolist(),
+                        'confidence': float(box.conf[0]),
+                        'class': int(box.cls[0])
+                    })
+
+            return jsonify({
+                'detections': detections,
+                'latency_ms': latency,
+                'deployment': 'base-pytorch',
+                'gpu': 0
+            })
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/benchmark', methods=['POST'])
+    def benchmark():
+        iterations = request.args.get('iterations', 100, type=int)
+
+        latencies = []
+        img = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
+
+        # Warmup
+        for _ in range(10):
+            model(img)
+
+        # Benchmark
+        start_time = time.time()
+        for _ in range(iterations):
+            start = time.time()
+            model(img)
+            latencies.append((time.time() - start) * 1000)
+
+        total_time = time.time() - start_time
+
+        return jsonify({
+            'iterations': iterations,
+            'total_time_sec': total_time,
+            'fps': iterations / total_time,
+            'latency_ms': {
+                'min': min(latencies),
+                'max': max(latencies),
+                'mean': sum(latencies) / len(latencies),
+                'p95': sorted(latencies)[int(len(latencies) * 0.95)]
+            },
+            'deployment': 'base-pytorch',
+            'gpu': 0
+        })
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yolo-base-service
+  namespace: yolo-base
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+spec:
+  type: LoadBalancer
+  selector:
+    app: yolo-base
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+---

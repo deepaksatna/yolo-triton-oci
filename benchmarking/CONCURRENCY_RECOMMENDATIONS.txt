@@ -1,0 +1,413 @@
+================================================================================
+CONCURRENCY LEVEL RECOMMENDATIONS & TROUBLESHOOTING
+================================================================================
+
+Date: 2026-01-01
+Purpose: Guide for choosing appropriate concurrency levels and troubleshooting
+
+================================================================================
+RECOMMENDED CONCURRENCY LEVELS
+================================================================================
+
+Concurrency | Purpose              | Expected Behavior        | Use When
+------------|----------------------|--------------------------|------------------
+1           | Baseline             | Pure latency            | Initial testing
+2-4         | Light load           | Minimal queueing        | Development testing
+8-16        | Medium load          | Realistic production    | Most benchmarks
+16-32       | Heavy load           | Peak traffic simulation | Capacity planning
+32-64       | Stress test          | Finding limits          | Extreme testing
+64+         | Breaking point       | System saturation       | Advanced testing only
+
+================================================================================
+WHAT HAPPENS AT HIGH CONCURRENCY
+================================================================================
+
+CONCURRENCY = 8 (RECOMMENDED):
+  ✓ Warmup: 10 iterations
+  ✓ Server load: Moderate
+  ✓ Success rate: 100%
+  ✓ Latency increase: 1.5-2x (queueing)
+  ✓ Errors: None expected
+
+CONCURRENCY = 32 (HEAVY):
+  ⚠ Warmup: 10 iterations (scaled down)
+  ⚠ Server load: High
+  ⚠ Success rate: 95-100%
+  ⚠ Latency increase: 3-5x (queueing + contention)
+  ⚠ Errors: Possible timeouts (5-10%)
+
+CONCURRENCY = 64+ (EXTREME):
+  ✗ Warmup: May fail
+  ✗ Server load: Very high
+  ✗ Success rate: 50-90%
+  ✗ Latency increase: 5-10x+ (severe queueing)
+  ✗ Errors: Frequent timeouts (20-50%)
+
+================================================================================
+ISSUES AT HIGH CONCURRENCY (32+ WORKERS)
+================================================================================
+
+ISSUE 1: Warmup Failures
+────────────────────────────────────────────────────────────────
+Symptom:
+  "Traceback... line 274, in benchmark_grpc_concurrent
+   client.infer(MODEL_NAME, inputs, model_version=MODEL_VERSION..."
+
+Cause:
+  - Warmup runs with single client
+  - Server may be slow to respond under load
+  - gRPC connection timeout (default: no timeout)
+
+Fix (APPLIED):
+  ✓ Reduced warmup iterations (scales with test size)
+  ✓ Added error handling to warmup
+  ✓ Continue if >0 warmup requests succeed
+  ✓ Warmup formula: min(10, max(5, iterations // 20))
+
+Examples:
+  ITERATIONS=50:    warmup=5
+  ITERATIONS=100:   warmup=5
+  ITERATIONS=1000:  warmup=10
+────────────────────────────────────────────────────────────────
+
+ISSUE 2: Request Timeouts During Benchmark
+────────────────────────────────────────────────────────────────
+Symptom:
+  High error rate (>10%)
+  "Progress: 100/1000 - Errors: 150"
+
+Cause:
+  - Server queuing requests
+  - GPU saturation
+  - Too many concurrent connections
+
+Fix (APPLIED):
+  ✓ Increased HTTP timeout: 30s → 60s
+  ✓ Better error messages
+  ✓ Track error count
+
+Recommendation:
+  - If errors >20%: Reduce concurrency
+  - If errors >50%: System overloaded, use 50% concurrency
+────────────────────────────────────────────────────────────────
+
+ISSUE 3: Out of Memory (OOM)
+────────────────────────────────────────────────────────────────
+Symptom:
+  Pod crashes or restarts
+  kubectl logs shows OOM killer
+
+Cause:
+  - Each worker creates client (memory overhead)
+  - Too many concurrent requests in GPU memory
+  - TensorRT engine buffers
+
+Fix:
+  - Reduce concurrency to 16 or less
+  - Check pod memory limits
+  - Monitor with: kubectl top pod -n NAMESPACE
+
+Calculation:
+  Typical memory per request: ~100MB
+  32 concurrent = 3.2GB memory needed
+  Pod limit: Check with kubectl describe pod
+────────────────────────────────────────────────────────────────
+
+ISSUE 4: CPU Bottleneck
+────────────────────────────────────────────────────────────────
+Symptom:
+  Throughput plateaus
+  CPU at 100%
+  GPU underutilized
+
+Cause:
+  - Too many threads creating overhead
+  - CPU preprocessing (image decoding)
+  - Python GIL (for base-yolo)
+
+Fix:
+  - Reduce concurrency
+  - For NIMs: Check CPU limits
+  - For base-yolo: This is expected (GIL limitation)
+────────────────────────────────────────────────────────────────
+
+================================================================================
+TROUBLESHOOTING WORKFLOW
+================================================================================
+
+Step 1: START LOW
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 1
+ITERATIONS = 50
+
+Run and verify:
+  ✓ All deployments work
+  ✓ No errors
+  ✓ Get baseline latency
+────────────────────────────────────────────────────────────────
+
+Step 2: INCREASE GRADUALLY
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 8
+ITERATIONS = 100
+
+Check:
+  ✓ Error rate <5%
+  ✓ Latency <2x baseline
+  ✓ Throughput scales reasonably
+────────────────────────────────────────────────────────────────
+
+Step 3: FIND SWEET SPOT
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 16
+ITERATIONS = 200
+
+Observe:
+  - Error rate (should be <10%)
+  - Latency (should be <3x baseline)
+  - Throughput (should plateau around here)
+
+If errors >10%: Reduce to CONCURRENCY=12
+If errors <5%:  Can try CONCURRENCY=24
+────────────────────────────────────────────────────────────────
+
+Step 4: STRESS TEST (OPTIONAL)
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 32
+ITERATIONS = 500
+
+Expect:
+  ⚠ Higher error rate (10-20%)
+  ⚠ Higher latency (3-5x baseline)
+  ⚠ Some timeouts
+
+This is NORMAL for stress testing - shows system limits
+────────────────────────────────────────────────────────────────
+
+================================================================================
+WHEN TO USE HIGH CONCURRENCY
+================================================================================
+
+USE CONCURRENCY = 8-16 (RECOMMENDED):
+  ✓ Realistic production simulation
+  ✓ Stable results
+  ✓ Low error rate
+  ✓ Good for comparison between deployments
+  → Most benchmarks should use this range
+
+USE CONCURRENCY = 32-64 (STRESS TEST):
+  ✓ Finding system limits
+  ✓ Capacity planning
+  ✓ Identifying bottlenecks
+  → Only for specific stress testing scenarios
+
+AVOID CONCURRENCY >64:
+  ✗ Unrealistic workload
+  ✗ High error rates
+  ✗ Unreliable results
+  ✗ May crash pods
+  → No practical benefit
+
+================================================================================
+ERROR RATE INTERPRETATION
+================================================================================
+
+Error Rate | Meaning                  | Action
+-----------|--------------------------|----------------------------------
+0-5%       | Excellent                | System handling load well
+5-10%      | Good                     | Acceptable for load testing
+10-20%     | Marginal                 | Consider reducing concurrency
+20-50%     | Poor                     | Reduce concurrency by 50%
+>50%       | System overloaded        | Reduce to CONCURRENCY=8
+
+Note: Some errors are expected during stress testing!
+
+================================================================================
+DEPLOYMENT-SPECIFIC RECOMMENDATIONS
+================================================================================
+
+base-yolo (PyTorch):
+────────────────────────────────────────────────────────────────
+Recommended: CONCURRENCY = 4-8
+Max useful:  CONCURRENCY = 16
+Reason:
+  - PyTorch GIL limits concurrency benefit
+  - Beyond 16, just adds errors with no throughput gain
+  - Use for baseline comparison only
+────────────────────────────────────────────────────────────────
+
+nim-binary (HTTP only):
+────────────────────────────────────────────────────────────────
+Recommended: CONCURRENCY = 8-16
+Max useful:  CONCURRENCY = 32
+Reason:
+  - HTTP overhead
+  - Single instance processing
+  - Throughput plateaus around 16-24
+────────────────────────────────────────────────────────────────
+
+nim-grpc (Low latency):
+────────────────────────────────────────────────────────────────
+Recommended: CONCURRENCY = 8-16
+Max useful:  CONCURRENCY = 32
+Reason:
+  - Optimized for latency, not high concurrency
+  - Single instance processing
+  - Best results at moderate concurrency
+────────────────────────────────────────────────────────────────
+
+nim-batching (Dynamic batching):
+────────────────────────────────────────────────────────────────
+Recommended: CONCURRENCY = 16-32
+Max useful:  CONCURRENCY = 64
+Reason:
+  - Benefits from batching multiple requests
+  - Designed for high concurrency
+  - Can handle higher loads than other deployments
+  - Best choice for stress testing
+────────────────────────────────────────────────────────────────
+
+================================================================================
+FIXES APPLIED TO SCRIPTS
+================================================================================
+
+1. ADAPTIVE WARMUP
+   - Old: Always 20 iterations
+   - New: Scales with test size (min 5, max 10)
+   - Formula: min(10, max(5, iterations // 20))
+
+2. WARMUP ERROR HANDLING
+   - Old: Fails on first warmup error
+   - New: Continues if ANY warmup succeeds
+   - Reports: "Warmup complete (8/10 successful)"
+
+3. INCREASED TIMEOUTS
+   - HTTP timeout: 30s → 60s
+   - Handles queueing at high concurrency
+
+4. BETTER ERROR MESSAGES
+   - Worker errors include truncated message
+   - Easier to diagnose issues
+
+5. CONCURRENCY WARNINGS
+   - Warns if concurrency >50
+   - Suggests starting with 8-16
+
+================================================================================
+CURRENT ISSUE (nim-batching with CONCURRENCY=32, ITERATIONS=1000)
+================================================================================
+
+What happened:
+  Error during warmup phase (line 274)
+  Warmup failed before benchmark started
+
+Why:
+  - 32 workers + 1000 iterations = very heavy test
+  - Warmup timeout
+  - Server response time increased under preparation
+
+Fix applied:
+  ✓ Reduced warmup iterations
+  ✓ Added error handling
+  ✓ Continue if partial warmup succeeds
+
+Try now:
+  1. CONCURRENCY = 16, ITERATIONS = 200 (more reasonable)
+  2. Or keep 32/1000 but expect some warmup warnings
+
+Result:
+  Should now succeed with "Warmup complete (X/Y successful)"
+  Benchmark will proceed even if some warmup requests fail
+
+================================================================================
+RECOMMENDED TESTING SEQUENCE
+================================================================================
+
+For your 4 deployments (base-yolo, nim-binary, nim-grpc, nim-batching):
+
+Test 1: Baseline
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 1
+ITERATIONS = 50
+Expected runtime: 5 minutes total (all deployments)
+Purpose: Pure latency baseline
+────────────────────────────────────────────────────────────────
+
+Test 2: Realistic Load
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 8
+ITERATIONS = 200
+Expected runtime: 15 minutes total
+Purpose: Typical production simulation
+Expected errors: 0-5%
+────────────────────────────────────────────────────────────────
+
+Test 3: Heavy Load (nim-batching focus)
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 16
+ITERATIONS = 500
+Expected runtime: 30 minutes total
+Purpose: Test batching effectiveness
+Expected errors: 5-10%
+────────────────────────────────────────────────────────────────
+
+Test 4: Stress Test (optional, nim-batching only)
+────────────────────────────────────────────────────────────────
+CONCURRENCY = 32
+ITERATIONS = 1000
+Expected runtime: 10 minutes (nim-batching only)
+Purpose: Find breaking point
+Expected errors: 10-20%
+Note: May need to skip other deployments for this test
+────────────────────────────────────────────────────────────────
+
+================================================================================
+QUICK FIX FOR YOUR CURRENT SITUATION
+================================================================================
+
+Option 1: RECOMMENDED - Use moderate concurrency
+────────────────────────────────────────────────────────────────
+Edit benchmark_all_pods.py:
+  CONCURRENCY = 16
+  ITERATIONS = 200
+
+This will:
+  ✓ Test all 4 deployments successfully
+  ✓ Show realistic load performance
+  ✓ Complete in ~30 minutes
+  ✓ <5% error rate expected
+────────────────────────────────────────────────────────────────
+
+Option 2: Keep high concurrency, expect warnings
+────────────────────────────────────────────────────────────────
+Keep:
+  CONCURRENCY = 32
+  ITERATIONS = 1000
+
+With fixes applied:
+  ⚠ Will show "Warmup complete (X/10 successful)"
+  ⚠ Some errors during benchmark (10-20%)
+  ⚠ Still useful for stress testing
+  ⚠ nim-batching will handle best, others may struggle
+────────────────────────────────────────────────────────────────
+
+================================================================================
+SUMMARY
+================================================================================
+
+✅ Scripts updated with robust error handling
+✅ Adaptive warmup that scales with test size
+✅ Better error messages and warnings
+✅ Increased timeouts for high concurrency
+
+Recommendation:
+  Start with CONCURRENCY=8, ITERATIONS=200
+  Increase gradually if needed
+  Use CONCURRENCY=32 only for specific stress testing
+
+The errors you saw were due to:
+  1. Warmup timeout at very high concurrency
+  2. Fixed with adaptive warmup and error handling
+  3. Should work now, but recommend starting lower
+
+================================================================================

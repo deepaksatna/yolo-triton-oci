@@ -1,0 +1,133 @@
+================================================================================
+YOLO NIM BENCHMARKING - QUICK START GUIDE
+================================================================================
+
+📍 Location:
+/Users/deepsoni/Oracle Content - Accounts/Oracle Content/Projects/CoE_initial/CoE_base/000-AICoE-Knowledgebase/001-customers/2025-lab/YOLO-NIM/simplest/benchmarking
+
+================================================================================
+🚀 RUN BENCHMARKS (2 Steps)
+================================================================================
+
+TERMINAL 1 - Setup Port Forwarding:
+────────────────────────────────────────────────────────────────────────────
+cd "/Users/deepsoni/Oracle Content - Accounts/Oracle Content/Projects/CoE_initial/CoE_base/000-AICoE-Knowledgebase/001-customers/2025-lab/YOLO-NIM/simplest/benchmarking"
+
+./setup_port_forwarding.sh
+
+→ Keep this terminal open!
+────────────────────────────────────────────────────────────────────────────
+
+TERMINAL 2 - Run Benchmarks:
+────────────────────────────────────────────────────────────────────────────
+cd "/Users/deepsoni/Oracle Content - Accounts/Oracle Content/Projects/CoE_initial/CoE_base/000-AICoE-Knowledgebase/001-customers/2025-lab/YOLO-NIM/simplest/benchmarking"
+
+python3 benchmark_all_pods.py
+
+→ Wait for completion (~3-5 minutes)
+────────────────────────────────────────────────────────────────────────────
+
+================================================================================
+📊 WHAT GETS BENCHMARKED
+================================================================================
+
+1. base-yolo       - PyTorch baseline        - 141.147.36.157 (HTTP)
+2. nim-binary      - HTTP Binary (GPU 1)     - 138.2.160.196  (HTTP)
+3. nim-grpc        - Lowest Latency (GPU 2)  - 138.3.255.156  (HTTP + gRPC)
+4. nim-batching    - High Throughput (GPU 3) - 92.5.3.38      (HTTP + gRPC)
+
+================================================================================
+📈 EXPECTED RESULTS
+================================================================================
+
+Deployment       | Latency  | Throughput | Best For
+─────────────────|──────────|────────────|──────────────────────────────
+nim-grpc         | 8-12 ms  | 80-120 FPS | Lowest latency, real-time
+nim-batching     | 15-20 ms | 200-400 FPS| Highest throughput, batch
+nim-binary       | 15-25 ms | 40-70 FPS  | HTTP-only, simplicity
+base-yolo        | 50-100 ms| 10-20 FPS  | PyTorch baseline
+
+================================================================================
+📁 OUTPUT FILES
+================================================================================
+
+Results will be saved to current directory:
+
+Individual Results:
+  - base-yolo_internal.json
+  - nim-binary_internal.json
+  - nim-grpc_internal.json
+  - nim-batching_internal.json
+
+Comprehensive Report:
+  - benchmark_report_YYYYMMDD_HHMMSS.txt    ← Read this for recommendations!
+
+All Results:
+  - all_results_YYYYMMDD_HHMMSS.json
+
+================================================================================
+🎯 KEY RECOMMENDATIONS (Preview)
+================================================================================
+
+Use nim-grpc when:
+  ✓ Need lowest latency (< 15ms)
+  ✓ Real-time video processing
+  ✓ Interactive applications
+  → Best latency: ~10ms
+
+Use nim-batching when:
+  ✓ Need highest throughput
+  ✓ Processing 100+ concurrent requests
+  ✓ Batch video processing
+  → Best throughput: 200-400 FPS
+
+Use nim-binary when:
+  ✓ Simple HTTP integration
+  ✓ No gRPC client library
+  ✓ Testing and development
+  → Simple and straightforward
+
+Use base-yolo when:
+  ✓ Comparing against PyTorch
+  ✓ Development reference
+  ✓ Debugging model behavior
+
+================================================================================
+🔧 TROUBLESHOOTING
+================================================================================
+
+Port forwarding not working?
+  pkill -f port-forward
+  ./setup_port_forwarding.sh
+
+Check if pods are running:
+  kubectl get pods -A | grep yolo
+
+Test port forwarding manually:
+  curl http://localhost:8200/v2/health/ready    # nim-grpc
+  curl http://localhost:8300/v2/health/ready    # nim-batching
+
+================================================================================
+📞 NEED HELP?
+================================================================================
+
+Read full documentation:
+  cat README.md
+
+Check deployment status:
+  cat /Users/deepsoni/Oracle\ Content\ -\ Accounts/Oracle\ Content/Projects/CoE_initial/CoE_base/000-AICoE-Knowledgebase/001-customers/2025-lab/YOLO-NIM/simplest/codes/DEPLOYMENT_REVIEW.txt
+
+================================================================================
+✅ QUICK CHECKLIST
+================================================================================
+
+Before running benchmarks:
+  [ ] All 4 pods Running: kubectl get pods -A | grep yolo
+  [ ] Port forwarding script running in Terminal 1
+  [ ] Terminal 2 ready for benchmark script
+  [ ] Python 3 available: python3 --version
+
+================================================================================
+Created: 2026-01-01
+Purpose: Quick reference for YOLO NIM benchmarking
+================================================================================

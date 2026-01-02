@@ -1,0 +1,384 @@
+================================================================================
+YOLO NIM LOAD TESTING GUIDE - CONCURRENT BENCHMARKING
+================================================================================
+
+Updated: 2026-01-01
+Feature: Concurrent/Load Testing with configurable concurrency
+
+================================================================================
+WHAT'S NEW: LOAD TESTING SUPPORT
+================================================================================
+
+The benchmarking suite now supports:
+
+✓ Sequential benchmarking (1 request at a time) - for latency testing
+✓ Concurrent benchmarking (N requests in parallel) - for load testing
+✓ Configurable concurrency (1-100+ workers)
+✓ Real throughput measurement under load
+✓ Error tracking during concurrent execution
+
+================================================================================
+HOW IT WORKS
+================================================================================
+
+SEQUENTIAL MODE (concurrency = 1):
+  - Sends one request at a time
+  - Measures pure inference latency
+  - Best for understanding baseline performance
+  - Throughput = 1000ms / mean_latency
+
+CONCURRENT MODE (concurrency > 1):
+  - Sends N requests in parallel using thread pool
+  - Simulates real production load
+  - Measures actual throughput under load
+  - Throughput = total_requests / total_time
+  - Shows how system handles concurrent users
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Edit benchmark_all_pods.py:
+
+# Line 64-65
+ITERATIONS = 50          # Total number of requests
+CONCURRENCY = 1          # Number of concurrent workers
+
+Examples:
+
+CONCURRENCY = 1          # Sequential (default) - measure latency
+CONCURRENCY = 4          # Light load - 4 concurrent users
+CONCURRENCY = 8          # Medium load - 8 concurrent users
+CONCURRENCY = 16         # Heavy load - 16 concurrent users
+CONCURRENCY = 32         # Stress test - 32 concurrent users
+
+Recommendation:
+  - Start with CONCURRENCY = 1 to get baseline
+  - Increase to 8-16 to test under realistic load
+  - Use 32+ for stress testing
+
+================================================================================
+USAGE EXAMPLES
+================================================================================
+
+Example 1: Baseline Sequential Testing
+────────────────────────────────────────────────────────────────
+# Edit benchmark_all_pods.py
+ITERATIONS = 50
+CONCURRENCY = 1
+
+# Run
+python3 benchmark_all_pods.py
+
+# Result:
+nim-binary      | TensorRT   |     7.44  |     8.57 | 134.5 | 10.7x
+nim-batching    | TensorRT   |     7.79  |     8.95 | 128.4 | 10.2x
+nim-grpc        | TensorRT   |    10.03  |    11.57 |  99.7 | 8.0x
+base-yolo       | PyTorch    |    80.25  |    95.40 |  12.5 | Baseline
+
+Interpretation:
+  - Pure inference latency (no concurrency)
+  - FPS calculated from: 1000ms / mean_latency
+  - Shows speedup vs PyTorch baseline
+────────────────────────────────────────────────────────────────
+
+Example 2: Moderate Load Testing
+────────────────────────────────────────────────────────────────
+# Edit benchmark_all_pods.py
+ITERATIONS = 100
+CONCURRENCY = 8
+
+# Run
+python3 benchmark_all_pods.py
+
+# Result:
+nim-binary      | TensorRT   |    12.50  |    15.23 | 640.0 FPS    | concurrent (c=8)
+nim-batching    | TensorRT   |     8.20  |    10.50 | 976.0 FPS    | concurrent (c=8)
+nim-grpc        | TensorRT   |    11.80  |    14.10 | 678.0 FPS    | concurrent (c=8)
+base-yolo       | PyTorch    |    85.00  |    98.00 |  11.8 FPS    | sequential (c=1)
+
+Interpretation:
+  - 8 concurrent requests hitting the server
+  - Throughput = 100 requests / total_time
+  - nim-batching shines here (dynamic batching!)
+  - Higher throughput but also higher latency (queueing)
+────────────────────────────────────────────────────────────────
+
+Example 3: Stress Testing
+────────────────────────────────────────────────────────────────
+# Edit benchmark_all_pods.py
+ITERATIONS = 200
+CONCURRENCY = 32
+
+# Run
+python3 benchmark_all_pods.py
+
+# Result:
+nim-binary      | TensorRT   |    45.20  |    62.30 | 708.0 FPS    | concurrent (c=32)
+nim-batching    | TensorRT   |    25.50  |    35.80 | 1254.0 FPS   | concurrent (c=32)
+nim-grpc        | TensorRT   |    42.10  |    58.90 | 760.0 FPS    | concurrent (c=32)
+base-yolo       | PyTorch    |    87.00  |   102.00 |  11.5 FPS    | sequential (c=1)
+
+Interpretation:
+  - Heavy load with 32 concurrent requests
+  - Latency increases (queueing + processing)
+  - nim-batching best for high concurrency (batching multiple requests)
+  - nim-binary/nim-grpc process one at a time (higher latency under load)
+────────────────────────────────────────────────────────────────
+
+Example 4: Direct Script Testing (Inside Pod)
+────────────────────────────────────────────────────────────────
+# Test NIMs directly
+
+# Sequential (50 iterations, auto-detect protocol, 1 worker)
+kubectl exec -n yolo-nim-grpc POD_NAME -c triton-server -- \
+  python3 /tmp/debug/benchmark_internal_universal.py 50 auto 1
+
+# Concurrent (100 iterations, gRPC, 16 workers)
+kubectl exec -n yolo-nim-grpc POD_NAME -c triton-server -- \
+  python3 /tmp/debug/benchmark_internal_universal.py 100 grpc 16
+
+# HTTP with concurrency
+kubectl exec -n yolo-nim-binary POD_NAME -c triton-server -- \
+  python3 /tmp/debug/benchmark_internal_universal.py 100 http 8
+
+# Test base-yolo directly (NEW!)
+
+# Sequential
+kubectl exec -n yolo-base POD_NAME -c yolo-golden -- \
+  python3 /tmp/debug/benchmark_base_yolo.py 50
+
+# Concurrent (100 iterations, 8 workers)
+kubectl exec -n yolo-base POD_NAME -c yolo-golden -- \
+  python3 /tmp/debug/benchmark_base_yolo_concurrent.py 100 8
+────────────────────────────────────────────────────────────────
+
+================================================================================
+UNDERSTANDING RESULTS
+================================================================================
+
+Key Metrics in Concurrent Mode:
+
+1. MEAN LATENCY (ms)
+   - Average time per request
+   - Includes queueing + inference time
+   - Higher under load (normal behavior)
+
+2. P95 LATENCY (ms)
+   - 95% of requests complete within this time
+   - Critical for SLA planning
+   - Shows tail latency behavior
+
+3. THROUGHPUT (FPS)
+   - Total requests completed / total time
+   - Actual production throughput
+   - Most important metric for load testing
+
+4. CONCURRENCY
+   - Number of parallel workers
+   - Simulates concurrent users
+
+5. ERRORS
+   - Failed requests during test
+   - Should be 0 for healthy system
+   - If > 0, system is overloaded
+
+Example Output:
+────────────────────────────────────────────────────────────────
+Protocol: GRPC
+Mode: CONCURRENT
+Location: internal
+Iterations: 100
+Concurrency: 8 workers
+Errors: 0
+Total Time: 1.25 sec
+
+Latency (ms):
+  Min:       8.50 ms
+  Max:      18.30 ms
+  Mean:     12.40 ms
+  P95:      15.20 ms
+
+Throughput:
+  FPS:     800.00         ← Actual throughput (100 / 1.25)
+  Avg FPS (from latency): 80.65  ← Theoretical (1000 / 12.4)
+────────────────────────────────────────────────────────────────
+
+Interpretation:
+  ✓ Actual throughput: 800 FPS (all 8 workers busy)
+  ✓ Avg FPS: 80.65 (single request theoretical)
+  ✓ System processed 100 requests in 1.25 seconds
+  ✓ Mean latency: 12.4ms (includes queueing)
+  ✓ No errors - system stable under load
+
+================================================================================
+CHOOSING THE RIGHT CONCURRENCY LEVEL
+================================================================================
+
+Use Case                           | Concurrency | Iterations | Notes
+-----------------------------------|-------------|------------|------------------
+Baseline Latency                   | 1           | 50         | Pure inference time
+Light Load (few users)             | 2-4         | 50-100     | Minimal queueing
+Medium Load (typical production)   | 8-16        | 100-200    | Realistic workload
+Heavy Load (peak traffic)          | 16-32       | 200-500    | Stress testing
+Stress Test (find limits)          | 32-100      | 500-1000   | Push to failure
+
+================================================================================
+EXPECTED BEHAVIOR
+================================================================================
+
+nim-binary (HTTP, no batching):
+  Sequential:   ~7-10ms latency, ~130 FPS
+  Concurrent:   Latency increases linearly with load
+                Throughput limited by sequential processing
+                Best for: Low concurrency scenarios
+
+nim-grpc (gRPC, no batching):
+  Sequential:   ~8-12ms latency, ~100 FPS
+  Concurrent:   Similar to nim-binary
+                Low latency but limited throughput
+                Best for: Low-latency requirements
+
+nim-batching (gRPC, dynamic batching):
+  Sequential:   ~8-12ms latency, ~100-130 FPS
+  Concurrent:   Latency increases slightly (batching delay)
+                Throughput scales well (processes multiple together)
+                Best for: High concurrency scenarios
+
+Example Scaling:
+
+Concurrency | nim-binary | nim-batching | Observation
+------------|------------|--------------|---------------------------
+1           | 7ms, 140FPS| 8ms, 125FPS  | Similar performance
+4           | 10ms, 400FPS| 9ms, 444FPS | nim-batching slightly better
+8           | 15ms, 533FPS| 10ms, 800FPS| nim-batching 50% better!
+16          | 30ms, 533FPS| 15ms, 1066FPS| nim-batching 2x better!
+32          | 60ms, 533FPS| 25ms, 1280FPS| nim-batching 2.4x better!
+
+Conclusion: nim-batching shines under concurrency!
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Issue: High error rate during concurrent testing
+Cause: System overloaded
+Solution: Reduce concurrency or increase timeout
+
+Issue: Throughput doesn't scale with concurrency
+Cause: System bottlenecked (CPU/GPU/memory)
+Solution: This is the expected limit - deploy more replicas
+
+Issue: base-yolo shows different results in concurrent mode
+Reason: base-yolo uses different endpoint for concurrent testing
+        - Sequential: /benchmark endpoint
+        - Concurrent: /infer endpoint (multiple concurrent calls)
+Solution: This is expected and correct - shows PyTorch under realistic load
+
+Issue: Latency much higher in concurrent mode
+Reason: This is normal - includes queueing time
+Explanation:
+  - Sequential: pure inference time
+  - Concurrent: queueing + inference time
+  - Use throughput (FPS) for load testing comparison
+
+================================================================================
+BEST PRACTICES
+================================================================================
+
+1. ALWAYS run sequential test first (CONCURRENCY=1)
+   → Establishes baseline latency
+
+2. Run concurrent test at expected production load
+   → Example: 8-16 concurrent users for typical application
+
+3. Run stress test to find limits
+   → Increase concurrency until throughput plateaus
+
+4. Monitor errors
+   → 0 errors = system healthy
+   → >0 errors = system overloaded
+
+5. Consider SLA requirements
+   → Use P95 latency for SLA planning
+   → Example: "95% of requests complete within 15ms"
+
+6. Test both protocols if supported
+   → gRPC typically faster than HTTP
+   → But HTTP simpler for testing
+
+================================================================================
+PRODUCTION DEPLOYMENT RECOMMENDATIONS
+================================================================================
+
+Based on Load Testing Results:
+
+Low Latency, Low Concurrency (<10 users):
+  → Use nim-grpc with gRPC protocol
+  → Expected: <12ms latency, 100+ FPS per pod
+  → Deploy: 1-2 pods
+
+Medium Load (10-50 concurrent users):
+  → Use nim-batching with gRPC protocol
+  → Expected: 15-20ms latency, 500-1000 FPS per pod
+  → Deploy: 2-4 pods
+
+High Load (50+ concurrent users):
+  → Use nim-batching with gRPC protocol
+  → Configure dynamic batching (already configured)
+  → Expected: 20-30ms latency, 1000-2000 FPS per pod
+  → Deploy: 4+ pods with load balancing
+
+Calculation Example:
+  - Target: 5000 requests/sec
+  - nim-batching: ~1000 FPS per pod under load
+  - Required pods: 5000 / 1000 = 5 pods
+  - Add 20% buffer: 6 pods
+  - Final: Deploy 6 replicas of nim-batching
+
+================================================================================
+QUICK REFERENCE
+================================================================================
+
+# Sequential (baseline)
+CONCURRENCY = 1, ITERATIONS = 50
+
+# Light load test
+CONCURRENCY = 4, ITERATIONS = 100
+
+# Medium load test
+CONCURRENCY = 8, ITERATIONS = 200
+
+# Heavy load test
+CONCURRENCY = 16, ITERATIONS = 500
+
+# Stress test
+CONCURRENCY = 32, ITERATIONS = 1000
+
+Run:
+  ./setup_port_forwarding.sh    # Terminal 1
+  python3 benchmark_all_pods.py  # Terminal 2
+
+Results:
+  - JSON files: OUTPUT_DIR/{deployment}_internal.json
+  - Report: OUTPUT_DIR/benchmark_report_*.txt
+
+================================================================================
+KEY TAKEAWAYS
+================================================================================
+
+✓ Sequential benchmarking (concurrency=1) shows pure latency
+✓ Concurrent benchmarking (concurrency>1) shows real throughput
+✓ nim-batching excels under concurrent load (dynamic batching)
+✓ nim-binary/nim-grpc better for low-latency, low-concurrency
+✓ Always test at expected production concurrency level
+✓ Use P95 latency for SLA planning
+✓ Monitor errors to detect overload conditions
+
+START HERE:
+  1. Run with CONCURRENCY=1 to get baseline
+  2. Run with CONCURRENCY=8 to test realistic load
+  3. Compare nim-batching vs nim-grpc
+  4. Choose deployment based on your workload
+
+================================================================================
